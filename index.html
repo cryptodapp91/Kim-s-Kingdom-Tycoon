@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kim’s Kingdom Tycoon - Vanilla JS</title>
+    <!-- Carica Tailwind CSS per lo styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Carica le icone Lucide (sebbene la versione pura le usi meno) -->
+    <script type="module">
+      import "https://unpkg.com/lucide@latest?module";
+    </script>
+    <!-- Carica le librerie Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase variables provided by Canvas environment
+        const canvasFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const canvasAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-canvas-app-id';
+
+        // ***************************************************************************************************
+        // *** IMPORTANTE: INSERISCI QUI LA TUA CONFIGURAZIONE FIREBASE REALE PER IL DEPLOY SU GITHUB/WEB ****
+        // ***************************************************************************************************
+        const STANDALONE_FIREBASE_CONFIG = {
+            apiKey: "YOUR_API_KEY", // <--- INSERISCI LA TUA API KEY QUI
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID", // <--- INSERISCI IL TUO ID PROGETTO QUI
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID" 
+        };
+        // ***************************************************************************************************
+
+        const IS_CANVAS_ENVIRONMENT = !!canvasFirebaseConfig;
+        const FIREBASE_CONFIG = IS_CANVAS_ENVIRONMENT ? canvasFirebaseConfig : STANDALONE_FIREBASE_CONFIG;
+        const MY_APP_ID = canvasAppId;
+
+        // ESPONE LE FUNZIONI DI FIRESTORE AL CONTESTO GLOBALE (window)
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.onSnapshot = onSnapshot;
+
+        window.firebaseApp = initializeApp(FIREBASE_CONFIG);
+        window.auth = getAuth(window.firebaseApp);
+        window.db = getFirestore(window.firebaseApp);
+        window.appId = MY_APP_ID;
+        
+        // Funzione di autenticazione
+        window.authenticateAndLoad = async () => {
+            let userId = null;
+            if (IS_CANVAS_ENVIRONMENT && canvasAuthToken) {
+                await signInWithCustomToken(window.auth, canvasAuthToken);
+            } else {
+                await signInAnonymously(window.auth);
+            }
+
+            onAuthStateChanged(window.auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('user-id').textContent = userId;
+                    window.game.init(userId);
+                } else {
+                    document.getElementById('user-id').textContent = 'Non autenticato';
+                }
+            });
+        };
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #111827; }
+        /* Stile aggiuntivo per l'effetto click sul pulsante */
+        .click-button {
+            background-image: radial-gradient(circle at center, #E53E3E 0%, #9B2C2C 100%);
+            border-bottom: 8px solid #9B2C2C;
+            transition: transform 0.1s, box-shadow 0.1s;
+        }
+        .click-button:active {
+            transform: scale(0.98);
+            border-bottom-width: 4px;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <div id="loading-screen" class="min-h-screen flex items-center justify-center">
+        <div class="text-center text-white">
+            <svg class="w-10 h-10 animate-spin text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <p class="text-xl mt-2">Caricamento stato di gioco...</p>
+        </div>
+    </div>
+
+    <div id="app-content" class="p-4 sm:p-8 hidden">
+        <header class="text-center mb-10">
+            <h1 class="text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-yellow-400 mb-2">
+                🇰🇵 KIM’S KINGDOM TYCOON 🇰🇵
+            </h1>
+            <p class="text-gray-400 text-lg">Simulazione gestionale per la gloria dello Stato</p>
+        </header>
+        
+        <!-- Informazioni Utente e Saldo -->
+        <div class="max-w-4xl mx-auto flex flex-col sm:flex-row justify-between items-center p-4 mb-8 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl">
+            <div class="flex items-center space-x-3 mb-4 sm:mb-0">
+                <lucide-icon name="user" class="w-6 h-6 text-red-500"></lucide-icon>
+                <p class="text-sm font-mono text-gray-400 break-all">ID Stato: <span id="user-id">Caricamento...</span></p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center p-2 bg-yellow-900/40 border border-yellow-500/50 rounded-full">
+                    <lucide-icon name="coins" class="w-6 h-6 text-yellow-400 mr-2"></lucide-icon>
+                    <p class="text-2xl font-bold text-white">
+                        PL: <span id="pl-balance" class="text-yellow-300">0</span>
+                    </p>
+                </div>
+                <div class="flex items-center p-2 bg-green-900/40 border border-green-500/50 rounded-full">
+                    <lucide-icon name="zap" class="w-6 h-6 text-green-400 mr-1"></lucide-icon>
+                    <p class="text-lg font-semibold text-white">
+                        <span id="cps-rate" class="text-green-300">+0.0</span> /s
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messaggio di Stato -->
+        <div id="game-message" class="hidden text-center p-3 mb-6 rounded-lg font-medium shadow-md"></div>
+
+        <div class="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Colonna Clicker -->
+            <div class="lg:col-span-1 flex flex-col items-center">
+                <h2 class="text-3xl font-bold text-red-400 mb-4 flex items-center">
+                    <lucide-icon name="hammer" class="w-6 h-6 mr-2"></lucide-icon>
+                    Produzione
+                </h2>
+                <button
+                    id="click-button"
+                    class="click-button w-full h-64 sm:h-80 transition-all rounded-2xl shadow-2xl flex flex-col items-center justify-center text-white p-4"
+                >
+                    <lucide-icon name="power" class="w-16 h-16 mb-2"></lucide-icon>
+                    <span class="text-3xl font-extrabold">Clicca per PL!</span>
+                    <span id="cpc-display" class="text-xl mt-2 font-semibold text-yellow-300">+1 PL</span>
+                </button>
+                
+                <!-- Upgrade Click -->
+                <div class="w-full mt-6 space-y-4">
+                    <h3 class="text-xl font-bold text-yellow-400 mt-4 border-b border-gray-700 pb-2">Potenziamenti Manuali</h3>
+                    <div id="click-upgrades-container" class="space-y-4">
+                        <!-- Qui vanno gli upgrade click -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Colonna Investimenti e Comunità -->
+            <div class="lg:col-span-2">
+                <!-- Investimenti -->
+                <h2 class="text-3xl font-bold text-sky-400 mb-4 flex items-center">
+                    <lucide-icon name="heart-handshake" class="w-6 h-6 mr-2"></lucide-icon>
+                    Investimenti Nazionali (Idle)
+                </h2
+                ><div id="investments-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- Qui vanno gli investimenti -->
+                </div>
+                
+                <!-- Comunità & Bonus -->
+                <div id="social-bonus-section" class="p-6 bg-gray-800/70 border border-indigo-700 rounded-xl shadow-2xl mt-8">
+                    <h3 class="text-2xl font-bold text-indigo-400 mb-4 flex items-center">
+                        <lucide-icon name="share-2" class="w-5 h-5 mr-2"></lucide-icon>
+                        Comunità & Bonus
+                    </h3>
+                    
+                    <div class="mb-6 p-4 bg-gray-900 rounded-lg border border-gray-700">
+                        <h4 class="text-xl font-semibold text-white mb-2">Link di Referral Personale</h4>
+                        <p class="text-gray-400 text-sm mb-3">Condividi questo link per invitare nuovi cittadini alla causa dello Stato!</p>
+                        <button
+                            id="copy-referral-button"
+                            class="flex items-center py-2 px-4 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors active:scale-95 shadow-md"
+                        >
+                            <lucide-icon name="clipboard" class="w-4 h-4 mr-2"></lucide-icon>
+                            Copia Link
+                        </button>
+                    </div>
+
+                    <div id="social-bonuses-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Qui vanno i bonus social -->
+                    </div>
+                </div>
+
+                <div class="mt-8 p-4 bg-gray-800/70 border border-gray-700 rounded-xl">
+                    <h3 class="text-xl font-bold text-red-400 mb-3">Riepilogo Stato</h3>
+                    <p class="text-gray-400">Progresso salvato in tempo reale su Firestore.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const INITIAL_BALANCE = 100;
+            const STARTING_CPC = 1;
+            const SOCIAL_BONUS_AMOUNT = 500;
+            const X_PAGE_URL = "https://x.com/nome_pagina_x_precedente";
+            const TELEGRAM_INVITE_URL = "https://t.me/link_telegram_precedente";
+
+            const investmentsData = [
+                { id: 1, name: "Manifesti di Propaganda", baseCost: 10, baseCps: 0.1, icon: "📢", description: "Aumenta la Fede e i PL generati per secondo." },
+                { id: 2, name: "Turni di Lavoro Estesi", baseCost: 100, baseCps: 1, icon: "🏭", description: "Potenzia la produzione industriale e il guadagno idle." },
+                { id: 3, name: "Accademia Militare", baseCost: 1000, baseCps: 5, icon: "🎖️", description: "Crea Eserciti di Lealtà per una rendita passiva sostanziale." },
+                { id: 4, name: "Miglioramento Infrastrutture", baseCost: 15000, baseCps: 50, icon: "🏗️", description: "Una rete statale più efficiente per massimizzare il profitto." },
+            ];
+
+            const clickUpgradesData = [
+                { id: 101, name: "Decreto Lavoro", baseCost: 50, multiplier: 2, icon: "📜", description: "Raddoppia i PL ottenuti da ogni singolo click.", key: 'click_upgrade_101' },
+                { id: 102, name: "Campagna di Efficienza", baseCost: 500, multiplier: 3, icon: "📈", description: "Moltiplicatore aggiuntivo sul tuo guadagno base per click.", key: 'click_upgrade_102' },
+            ];
+
+            const socialBonusesData = [
+                { key: 'x_followed', name: 'Segui su X', url: X_PAGE_URL, icon: 'twitter' },
+                { key: 'telegram_joined', name: 'Unisciti a Telegram', url: TELEGRAM_INVITE_URL, icon: 'send' }
+            ];
+
+            // Variabili di stato globale del gioco
+            let state = {
+                plBalance: INITIAL_BALANCE,
+                investmentLevels: {},
+                clickMultiplier: STARTING_CPC,
+                clickUpgradePurchased: {},
+                socialBonuses: {}
+            };
+            let userId = null;
+            let saveTimeout = null;
+            
+            // --- Funzioni Helper ---
+            const formatPL = (amount) => Math.floor(amount).toLocaleString('it-IT');
+
+            function showMessage(msg, isError = false) {
+                const messageEl = document.getElementById('game-message');
+                messageEl.textContent = msg;
+                messageEl.className = `text-center p-3 mb-6 rounded-lg font-medium shadow-md ${
+                    isError ? 'bg-red-500/20 text-red-300 border border-red-500' : 'bg-sky-500/20 text-sky-300 border border-sky-500'
+                }`;
+                messageEl.classList.remove('hidden');
+                setTimeout(() => messageEl.classList.add('hidden'), 5000);
+            }
+
+            // --- Logica di Salvataggio/Caricamento (Firebase) ---
+
+            function saveState() {
+                // Utilizza window.db e window.doc/window.setDoc
+                if (!window.db || !userId || !window.doc || !window.setDoc) return;
+                
+                // Debounce: Evita di salvare troppo spesso
+                clearTimeout(saveTimeout);
+                saveTimeout = setTimeout(() => {
+                    const userDocRef = window.doc(window.db, "artifacts", window.appId, "users", userId, "game_state", "data");
+                    window.setDoc(userDocRef, state).catch(err => {
+                        console.error("Errore nel salvataggio dello stato:", err);
+                        showMessage("Errore nel salvataggio. Riprova.", true);
+                    });
+                }, 500);
+            }
+
+            function loadState(uid) {
+                userId = uid;
+                
+                // Utilizza window.db, window.doc e window.onSnapshot
+                if (!window.db || !userId || !window.doc || !window.onSnapshot) return;
+
+                const userDocRef = window.doc(window.db, "artifacts", window.appId, "users", userId, "game_state", "data");
+                
+                window.onSnapshot(userDocRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const savedState = docSnap.data();
+                        state = {
+                            plBalance: savedState.plBalance !== undefined ? savedState.plBalance : INITIAL_BALANCE,
+                            investmentLevels: savedState.investmentLevels || {},
+                            clickMultiplier: savedState.clickMultiplier !== undefined ? savedState.clickMultiplier : STARTING_CPC,
+                            clickUpgradePurchased: savedState.clickUpgradePurchased || {},
+                            socialBonuses: savedState.socialBonuses || {}
+                        };
+                        showMessage('Stato di gioco caricato con successo.');
+                    } else {
+                        // Se non esiste, crea lo stato iniziale
+                        saveState(); 
+                        showMessage('Nuova sessione iniziata o dati iniziali creati.');
+                    }
+                    renderUI(); // Aggiorna l'interfaccia dopo il caricamento
+                    document.getElementById('loading-screen').classList.add('hidden');
+                    document.getElementById('app-content').classList.remove('hidden');
+                }, (error) => {
+                    console.error("Errore durante l'ascolto dello stato in tempo reale:", error);
+                    showMessage("Errore durante il caricamento dei dati.", true);
+                    document.getElementById('loading-screen').classList.add('hidden');
+                    document.getElementById('app-content').classList.remove('hidden');
+                });
+            }
+
+            // --- Logica di Gioco ---
+
+            function calculateCps() {
+                let totalCps = 0;
+                investmentsData.forEach(invest => {
+                    const level = state.investmentLevels[invest.id] || 0;
+                    totalCps += invest.baseCps * level;
+                });
+                return totalCps;
+            }
+
+            function gameLoop() {
+                const totalCps = calculateCps();
+                state.plBalance += totalCps / 10; // Aggiunge CPS 10 volte al secondo
+                renderHeader(); // Aggiorna solo i contatori del saldo e CPS
+            }
+
+            // Aggiunge guadagno idle ogni 100ms
+            setInterval(gameLoop, 100);
+
+            function handleManualClick() {
+                state.plBalance += state.clickMultiplier;
+                renderUI();
+                saveState();
+            }
+
+            function handleBuyInvestment(invest) {
+                const currentLevel = state.investmentLevels[invest.id] || 0;
+                const cost = Math.floor(invest.baseCost * Math.pow(1.15, currentLevel));
+                
+                if (state.plBalance >= cost) {
+                    state.plBalance -= cost;
+                    state.investmentLevels[invest.id] = currentLevel + 1;
+                    showMessage(`Acquistato ${invest.name} Liv. ${currentLevel + 1}. Costo: ${formatPL(cost)} PL.`);
+                    renderUI();
+                    saveState();
+                } else {
+                    showMessage(`Errore: PL insufficienti per ${invest.name}. Servono ${formatPL(cost)} PL.`, true);
+                }
+            }
+
+            function handleBuyClickUpgrade(upgrade) {
+                const cost = upgrade.baseCost;
+                if (state.clickUpgradePurchased[upgrade.key]) {
+                    showMessage(`Errore: ${upgrade.name} è già stato acquistato.`, true);
+                    return;
+                }
+                
+                if (state.plBalance >= cost) {
+                    state.plBalance -= cost;
+                    state.clickMultiplier *= upgrade.multiplier;
+                    state.clickUpgradePurchased[upgrade.key] = true;
+                    showMessage(`Acquistato ${upgrade.name}. Moltiplicatore click aumentato a x${state.clickMultiplier}.`);
+                    renderUI();
+                    saveState();
+                } else {
+                    showMessage(`Errore: PL insufficienti per ${upgrade.name}. Servono ${formatPL(cost)} PL.`, true);
+                }
+            }
+            
+            function handleClaimSocialBonus(bonus) {
+                if (state.socialBonuses[bonus.key]) {
+                    showMessage(`Errore: Bonus "${bonus.name}" già riscattato.`, true);
+                    return;
+                }
+
+                window.open(bonus.url, '_blank');
+
+                state.plBalance += SOCIAL_BONUS_AMOUNT;
+                state.socialBonuses[bonus.key] = true;
+                
+                showMessage(`Bonus "${bonus.name}" riscattato! Hai ricevuto ${formatPL(SOCIAL_BONUS_AMOUNT)} PL.`);
+                renderUI();
+                saveState();
+            }
+
+            function handleCopyReferral() {
+                // userId è garantito che sia valorizzato al momento del click se l'autenticazione è ok
+                if (!userId) {
+                     showMessage("Errore: ID utente non disponibile. Ricarica la pagina.", true);
+                     return;
+                }
+
+                const referralLink = `${window.location.origin}/?ref=${userId}`;
+                
+                const el = document.createElement('textarea');
+                el.value = referralLink;
+                document.body.appendChild(el);
+                el.select();
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        showMessage("Link di referral copiato negli appunti!");
+                    } else {
+                        showMessage("Errore: Impossibile copiare il link.", true);
+                    }
+                } catch (err) {
+                    showMessage("Errore: Impossibile copiare il link.", true);
+                } finally {
+                    document.body.removeChild(el);
+                }
+            }
+
+
+            // --- Funzioni di Rendering (Aggiornamento UI) ---
+
+            function renderHeader() {
+                const totalCps = calculateCps();
+                document.getElementById('pl-balance').textContent = formatPL(state.plBalance);
+                document.getElementById('cps-rate').textContent = `+${totalCps.toFixed(1)}`;
+                document.getElementById('cpc-display').textContent = `+${formatPL(state.clickMultiplier)} PL`;
+            }
+
+            function renderInvestmentCards() {
+                const container = document.getElementById('investments-container');
+                container.innerHTML = ''; // Pulisce i vecchi elementi
+
+                investmentsData.forEach(invest => {
+                    const currentLevel = state.investmentLevels[invest.id] || 0;
+                    const cost = Math.floor(invest.baseCost * Math.pow(1.15, currentLevel));
+                    const currentCps = invest.baseCps * currentLevel;
+                    const canAfford = state.plBalance >= cost;
+                    
+                    const card = document.createElement('div');
+                    card.className = `p-4 rounded-lg shadow-xl transition-all border ${canAfford ? 'border-green-600/50 bg-gray-800 hover:bg-gray-700' : 'border-red-600/50 bg-gray-900 opacity-70'}`;
+                    card.innerHTML = `
+                        <div class="flex items-center space-x-3 mb-2">
+                            <span class="text-3xl">${invest.icon}</span>
+                            <h3 class="text-xl font-bold text-white">${invest.name}</h3>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-3">${invest.description}</p>
+                        
+                        <div class="flex justify-between items-center text-sm mb-3">
+                            <span class="text-yellow-400 font-medium">Livello: ${currentLevel}</span>
+                            <span class="text-green-400 font-medium">Rendimento: +${currentCps.toFixed(1)} PL/s</span>
+                        </div>
+                        <button class="buy-invest-btn w-full py-2 rounded-lg font-semibold transition-all shadow-md active:scale-95 ${
+                            canAfford ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                        }" ${canAfford ? '' : 'disabled'}>
+                            ${canAfford ? `INVESTI (${formatPL(cost)} PL)` : `Costo: ${formatPL(cost)} PL`}
+                        </button>
+                    `;
+                    card.querySelector('.buy-invest-btn').addEventListener('click', () => handleBuyInvestment(invest));
+                    container.appendChild(card);
+                });
+            }
+
+            function renderClickUpgradeCards() {
+                const container = document.getElementById('click-upgrades-container');
+                container.innerHTML = '';
+                
+                clickUpgradesData.forEach(upgrade => {
+                    const cost = upgrade.baseCost;
+                    const isPurchased = state.clickUpgradePurchased[upgrade.key];
+                    const canAfford = state.plBalance >= cost && !isPurchased;
+                    
+                    const card = document.createElement('div');
+                    card.className = `p-4 rounded-lg shadow-xl transition-all border ${canAfford ? 'border-yellow-600/50 bg-gray-800 hover:bg-gray-700' : 'border-gray-600/50 bg-gray-900 opacity-70'}`;
+                    
+                    let buttonText;
+                    let buttonClass;
+
+                    if (isPurchased) {
+                        buttonText = 'ACQUISTATO';
+                        buttonClass = 'bg-green-700 text-white cursor-not-allowed';
+                    } else if (canAfford) {
+                        buttonText = `ACQUISTA (${formatPL(cost)} PL)`;
+                        buttonClass = 'bg-yellow-700 hover:bg-yellow-600 text-white';
+                    } else {
+                        buttonText = `Costo: ${formatPL(cost)} PL`;
+                        buttonClass = 'bg-gray-600 text-gray-400 cursor-not-allowed';
+                    }
+
+                    card.innerHTML = `
+                        <div class="flex items-center space-x-3 mb-2">
+                            <span class="text-3xl">${upgrade.icon}</span>
+                            <h3 class="text-xl font-bold text-white">${upgrade.name}</h3>
+                        </div>
+                        <p class="text-sm text-gray-400 mb-3">${upgrade.description}</p>
+                        <div class="flex justify-between items-center text-sm mb-3">
+                            <span class="text-yellow-400 font-medium">Moltiplicatore: x${upgrade.multiplier}</span>
+                        </div>
+                        <button class="buy-click-btn w-full py-2 rounded-lg font-semibold transition-all shadow-md active:scale-95 ${buttonClass}" ${!canAfford || isPurchased ? 'disabled' : ''}>
+                            ${buttonText}
+                        </button>
+                    `;
+                    
+                    const button = card.querySelector('.buy-click-btn');
+                    if (!isPurchased) {
+                        button.addEventListener('click', () => handleBuyClickUpgrade(upgrade));
+                    }
+                    container.appendChild(card);
+                });
+            }
+
+            function renderSocialBonuses() {
+                const container = document.getElementById('social-bonuses-container');
+                container.innerHTML = '';
+                
+                socialBonusesData.forEach(bonus => {
+                    const isClaimed = state.socialBonuses[bonus.key];
+                    
+                    const card = document.createElement('div');
+                    card.className = `p-4 rounded-lg shadow-md border ${isClaimed ? 'border-green-600/50 bg-green-900/20' : 'border-sky-600/50 bg-gray-900/50'}`;
+                    
+                    let buttonText = isClaimed ? 'RISCATTATO' : 'OTTIENI BONUS';
+                    let buttonClass = isClaimed ? 'bg-green-700 text-white cursor-not-allowed' : 'bg-sky-700 hover:bg-sky-600 text-white active:scale-95';
+
+                    card.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <h4 class="text-lg font-semibold text-white flex items-center"><lucide-icon name="${bonus.icon}" class="w-4 h-4 mr-1 text-sky-400"></lucide-icon> ${bonus.name}</h4>
+                                <p class="text-sm text-yellow-300">+ ${formatPL(SOCIAL_BONUS_AMOUNT)} PL</p>
+                            </div>
+                            <button class="claim-bonus-btn py-2 px-4 rounded-full font-semibold transition-all shadow-lg ${buttonClass}" ${isClaimed ? 'disabled' : ''}>
+                                ${buttonText}
+                            </button>
+                        </div>
+                    `;
+
+                    const button = card.querySelector('.claim-bonus-btn');
+                    if (!isClaimed) {
+                        button.addEventListener('click', () => handleClaimSocialBonus(bonus));
+                    }
+                    container.appendChild(card);
+                });
+            }
+
+            function renderUI() {
+                renderHeader();
+                renderInvestmentCards();
+                renderClickUpgradeCards();
+                renderSocialBonuses();
+                // Il salvataggio viene chiamato da qui solo per assicurare che lo stato sia salvato dopo le azioni di gioco/render
+            }
+
+            // --- Inizializzazione ---
+
+            // 1. Collega il click manuale
+            document.getElementById('click-button').addEventListener('click', handleManualClick);
+            
+            // 2. Collega la copia del referral
+            document.getElementById('copy-referral-button').addEventListener('click', handleCopyReferral);
+            
+            // 3. Espone la funzione di caricamento per l'uso esterno (dal blocco di import Firebase)
+            window.game = {
+                init: (uid) => {
+                    userId = uid;
+                    // Controlla che TUTTE le funzioni necessarie siano state esposte correttamente
+                    if (window.db && userId && window.doc && window.setDoc && window.onSnapshot) {
+                         loadState(userId); 
+                    } else {
+                        document.getElementById('loading-screen').innerHTML = '<div class="text-center text-white"><h2 class="text-2xl font-bold text-red-500">ERRORE DI CONFIGURAZIONE!</h2><p class="mt-2">Verifica che la configurazione Firebase (API Key, Project ID, ecc.) sia corretta e che tutte le funzioni siano state caricate.</p></div>';
+                        document.getElementById('loading-screen').classList.remove('hidden');
+                        document.getElementById('app-content').classList.add('hidden');
+                    }
+                }
+            };
+
+            // Avvia il processo di autenticazione e caricamento una volta che l'ambiente Firebase è pronto
+            window.authenticateAndLoad();
+        });
+    </script>
+</body>
+</html>
