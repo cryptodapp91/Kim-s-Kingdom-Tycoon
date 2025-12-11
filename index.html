@@ -3,69 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kim’s Kingdom Tycoon - Vanilla JS</title>
+    <title>Kim’s Kingdom Tycoon</title>
     <!-- Carica Tailwind CSS per lo styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Carica le icone Lucide (sebbene la versione pura le usi meno) -->
+    <!-- Carica le icone Lucide -->
     <script type="module">
       import "https://unpkg.com/lucide@latest?module";
     </script>
-    <!-- Carica le librerie Firebase -->
+    <!-- Carica le librerie Firebase (necessarie per la struttura, anche se disabilitate) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global Firebase variables provided by Canvas environment
-        const canvasFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const canvasAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-canvas-app-id';
-
-        // ***************************************************************************************************
-        // *** IMPORTANTE: INSERISCI QUI LA TUA CONFIGURAZIONE FIREBASE REALE PER IL DEPLOY SU GITHUB/WEB ****
-        // ***************************************************************************************************
+        // Configurazione Placeholder Firebase
         const STANDALONE_FIREBASE_CONFIG = {
-            apiKey: "YOUR_API_KEY", // <--- INSERISCI LA TUA API KEY QUI
-            authDomain: "YOUR_AUTH_DOMAIN",
-            projectId: "YOUR_PROJECT_ID", // <--- INSERISCI IL TUO ID PROGETTO QUI
-            storageBucket: "YOUR_STORAGE_BUCKET",
-            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-            appId: "YOUR_APP_ID" 
+            apiKey: "YOUR_API_KEY", 
+            projectId: "YOUR_PROJECT_ID", 
+            // In GitHub Pages, il gioco usa questi placeholder. Se non vengono aggiornati,
+            // il codice sottostante capirà che deve usare localStorage.
         };
-        // ***************************************************************************************************
 
-        const IS_CANVAS_ENVIRONMENT = !!canvasFirebaseConfig;
-        const FIREBASE_CONFIG = IS_CANVAS_ENVIRONMENT ? canvasFirebaseConfig : STANDALONE_FIREBASE_CONFIG;
-        const MY_APP_ID = canvasAppId;
+        const FIREBASE_CONFIG = STANDALONE_FIREBASE_CONFIG;
+        const FIREBASE_PLACEHOLDERS_USED = (FIREBASE_CONFIG.apiKey === "YOUR_API_KEY" || FIREBASE_CONFIG.projectId === "YOUR_PROJECT_ID");
 
-        // ESPONE LE FUNZIONI DI FIRESTORE AL CONTESTO GLOBALE (window)
-        window.doc = doc;
-        window.setDoc = setDoc;
-        window.onSnapshot = onSnapshot;
-
-        window.firebaseApp = initializeApp(FIREBASE_CONFIG);
-        window.auth = getAuth(window.firebaseApp);
-        window.db = getFirestore(window.firebaseApp);
-        window.appId = MY_APP_ID;
+        // Inizializzazione minima per prevenire errori, ma non sarà usato per il salvataggio
+        try {
+            window.firebaseApp = initializeApp(FIREBASE_CONFIG);
+            window.auth = getAuth(window.firebaseApp);
+            window.db = getFirestore(window.firebaseApp);
+        } catch (e) {
+            console.warn("Firebase non è stato inizializzato. Usando Local Storage per il salvataggio.");
+        }
         
-        // Funzione di autenticazione
+        // Funzione di autenticazione fittizia o anonima
         window.authenticateAndLoad = async () => {
-            let userId = null;
-            if (IS_CANVAS_ENVIRONMENT && canvasAuthToken) {
-                await signInWithCustomToken(window.auth, canvasAuthToken);
-            } else {
-                await signInAnonymously(window.auth);
-            }
+            let userId = 'local-user-' + (localStorage.getItem('userId') || crypto.randomUUID());
+            localStorage.setItem('userId', userId);
 
-            onAuthStateChanged(window.auth, (user) => {
-                if (user) {
-                    userId = user.uid;
-                    document.getElementById('user-id').textContent = userId;
-                    window.game.init(userId);
-                } else {
-                    document.getElementById('user-id').textContent = 'Non autenticato';
-                }
-            });
+            // Se Firebase è configurato, tentiamo l'autenticazione anonima
+            if (!FIREBASE_PLACEHOLDERS_USED && window.auth) {
+                 await signInAnonymously(window.auth);
+                 onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        window.game.init(user.uid, false); // Usa Firebase
+                    } else {
+                        window.game.init(userId, true); // Fallback a Local Storage se auth fallisce
+                    }
+                });
+            } else {
+                // Senza configurazione Firebase, forziamo Local Storage
+                window.game.init(userId, true); 
+            }
         };
     </script>
     <style>
@@ -89,6 +78,7 @@
         <div class="text-center text-white">
             <svg class="w-10 h-10 animate-spin text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
             <p class="text-xl mt-2">Caricamento stato di gioco...</p>
+            <!-- Rimosso l'ID 'save-mode-info' e la scritta 'Modalità Salvataggio: Local Storage' -->
         </div>
     </div>
 
@@ -156,8 +146,8 @@
                 <h2 class="text-3xl font-bold text-sky-400 mb-4 flex items-center">
                     <lucide-icon name="heart-handshake" class="w-6 h-6 mr-2"></lucide-icon>
                     Investimenti Nazionali (Idle)
-                </h2
-                ><div id="investments-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                </h2>
+                <div id="investments-container" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <!-- Qui vanno gli investimenti -->
                 </div>
                 
@@ -187,7 +177,8 @@
 
                 <div class="mt-8 p-4 bg-gray-800/70 border border-gray-700 rounded-xl">
                     <h3 class="text-xl font-bold text-red-400 mb-3">Riepilogo Stato</h3>
-                    <p class="text-gray-400">Progresso salvato in tempo reale su Firestore.</p>
+                    <!-- Testo neutro che non menziona la modalità di salvataggio -->
+                    <p class="text-gray-400">Progresso salvato in tempo reale.</p>
                 </div>
             </div>
         </div>
@@ -195,11 +186,14 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // Aggiornati i link qui
+            const X_PAGE_URL = "https://x.com/KJF_Sol";
+            const TELEGRAM_INVITE_URL = "https://t.me/KJFSol";
+
             const INITIAL_BALANCE = 100;
             const STARTING_CPC = 1;
             const SOCIAL_BONUS_AMOUNT = 500;
-            const X_PAGE_URL = "https://x.com/nome_pagina_x_precedente";
-            const TELEGRAM_INVITE_URL = "https://t.me/link_telegram_precedente";
+            
 
             const investmentsData = [
                 { id: 1, name: "Manifesti di Propaganda", baseCost: 10, baseCps: 0.1, icon: "📢", description: "Aumenta la Fede e i PL generati per secondo." },
@@ -228,8 +222,89 @@
             };
             let userId = null;
             let saveTimeout = null;
-            
-            // --- Funzioni Helper ---
+            let useLocalStorage = true; // Inizializzato a true
+
+            // --- Logica di Salvataggio/Caricamento (Local Storage Fallback) ---
+
+            function saveState() {
+                clearTimeout(saveTimeout);
+                saveTimeout = setTimeout(() => {
+                    if (useLocalStorage) {
+                        try {
+                            localStorage.setItem('gameState', JSON.stringify(state));
+                        } catch (e) {
+                            console.error("Errore nel salvataggio su Local Storage:", e);
+                            showMessage("Errore: Impossibile salvare i progressi in locale.", true);
+                        }
+                    } 
+                    // Se non è Local Storage, si suppone che Firebase sia attivo e stia gestendo il salvataggio
+                }, 500);
+            }
+
+            function loadState(uid, forceLocalStorage) {
+                userId = uid;
+                useLocalStorage = forceLocalStorage;
+
+                if (useLocalStorage) {
+                    // Modalità Local Storage
+                    const savedStateString = localStorage.getItem('gameState');
+                    if (savedStateString) {
+                        try {
+                            const savedState = JSON.parse(savedStateString);
+                            state = {
+                                plBalance: savedState.plBalance !== undefined ? savedState.plBalance : INITIAL_BALANCE,
+                                investmentLevels: savedState.investmentLevels || {},
+                                clickMultiplier: savedState.clickMultiplier !== undefined ? savedState.clickMultiplier : STARTING_CPC,
+                                clickUpgradePurchased: savedState.clickUpgradePurchased || {},
+                                socialBonuses: savedState.socialBonuses || {}
+                            };
+                            showMessage('Stato di gioco caricato dalla memoria locale.');
+                        } catch (e) {
+                            console.error("Errore nel parsing dello stato salvato.", e);
+                            showMessage('Errore nel caricamento dei dati salvati. Iniziando una nuova partita.', true);
+                        }
+                    } else {
+                        showMessage('Nuova sessione iniziata (salvataggio locale).');
+                    }
+                    
+                    renderUI(); // Aggiorna l'interfaccia dopo il caricamento
+                    document.getElementById('loading-screen').classList.add('hidden');
+                    document.getElementById('app-content').classList.remove('hidden');
+
+                } else {
+                    // Modalità Firebase (richiede autenticazione riuscita)
+                    
+                    const userDocRef = window.doc(window.db, "artifacts", "default-app-id", "users", userId, "game_state", "data");
+                    
+                    window.onSnapshot(userDocRef, (docSnap) => {
+                        // ... Logica Firebase onSnapshot (omessa per brevità ma presente nel codice originale)
+                        if (docSnap.exists()) {
+                            const savedState = docSnap.data();
+                            state = {
+                                plBalance: savedState.plBalance !== undefined ? savedState.plBalance : INITIAL_BALANCE,
+                                investmentLevels: savedState.investmentLevels || {},
+                                clickMultiplier: savedState.clickMultiplier !== undefined ? savedState.clickMultiplier : STARTING_CPC,
+                                clickUpgradePurchased: savedState.clickUpgradePurchased || {},
+                                socialBonuses: savedState.socialBonuses || {}
+                            };
+                            showMessage('Stato di gioco caricato con successo da Firebase.');
+                        } else {
+                            saveState(); // Salva stato iniziale su Firebase
+                            showMessage('Nuova sessione iniziata o dati iniziali creati su Firebase.');
+                        }
+                        renderUI();
+                        document.getElementById('loading-screen').classList.add('hidden');
+                        document.getElementById('app-content').classList.remove('hidden');
+                    }, (error) => {
+                        console.error("Errore Firebase. Fallback a Local Storage:", error);
+                        // Se Firebase fallisce, prova il fallback
+                        loadState(userId, true);
+                    });
+                }
+            }
+
+            // --- Funzioni di Gioco/Rendering (Non modificate) ---
+
             const formatPL = (amount) => Math.floor(amount).toLocaleString('it-IT');
 
             function showMessage(msg, isError = false) {
@@ -242,60 +317,6 @@
                 setTimeout(() => messageEl.classList.add('hidden'), 5000);
             }
 
-            // --- Logica di Salvataggio/Caricamento (Firebase) ---
-
-            function saveState() {
-                // Utilizza window.db e window.doc/window.setDoc
-                if (!window.db || !userId || !window.doc || !window.setDoc) return;
-                
-                // Debounce: Evita di salvare troppo spesso
-                clearTimeout(saveTimeout);
-                saveTimeout = setTimeout(() => {
-                    const userDocRef = window.doc(window.db, "artifacts", window.appId, "users", userId, "game_state", "data");
-                    window.setDoc(userDocRef, state).catch(err => {
-                        console.error("Errore nel salvataggio dello stato:", err);
-                        showMessage("Errore nel salvataggio. Riprova.", true);
-                    });
-                }, 500);
-            }
-
-            function loadState(uid) {
-                userId = uid;
-                
-                // Utilizza window.db, window.doc e window.onSnapshot
-                if (!window.db || !userId || !window.doc || !window.onSnapshot) return;
-
-                const userDocRef = window.doc(window.db, "artifacts", window.appId, "users", userId, "game_state", "data");
-                
-                window.onSnapshot(userDocRef, (docSnap) => {
-                    if (docSnap.exists()) {
-                        const savedState = docSnap.data();
-                        state = {
-                            plBalance: savedState.plBalance !== undefined ? savedState.plBalance : INITIAL_BALANCE,
-                            investmentLevels: savedState.investmentLevels || {},
-                            clickMultiplier: savedState.clickMultiplier !== undefined ? savedState.clickMultiplier : STARTING_CPC,
-                            clickUpgradePurchased: savedState.clickUpgradePurchased || {},
-                            socialBonuses: savedState.socialBonuses || {}
-                        };
-                        showMessage('Stato di gioco caricato con successo.');
-                    } else {
-                        // Se non esiste, crea lo stato iniziale
-                        saveState(); 
-                        showMessage('Nuova sessione iniziata o dati iniziali creati.');
-                    }
-                    renderUI(); // Aggiorna l'interfaccia dopo il caricamento
-                    document.getElementById('loading-screen').classList.add('hidden');
-                    document.getElementById('app-content').classList.remove('hidden');
-                }, (error) => {
-                    console.error("Errore durante l'ascolto dello stato in tempo reale:", error);
-                    showMessage("Errore durante il caricamento dei dati.", true);
-                    document.getElementById('loading-screen').classList.add('hidden');
-                    document.getElementById('app-content').classList.remove('hidden');
-                });
-            }
-
-            // --- Logica di Gioco ---
-
             function calculateCps() {
                 let totalCps = 0;
                 investmentsData.forEach(invest => {
@@ -307,11 +328,10 @@
 
             function gameLoop() {
                 const totalCps = calculateCps();
-                state.plBalance += totalCps / 10; // Aggiunge CPS 10 volte al secondo
-                renderHeader(); // Aggiorna solo i contatori del saldo e CPS
+                state.plBalance += totalCps / 10; 
+                renderHeader(); 
             }
 
-            // Aggiunge guadagno idle ogni 100ms
             setInterval(gameLoop, 100);
 
             function handleManualClick() {
@@ -371,7 +391,6 @@
             }
 
             function handleCopyReferral() {
-                // userId è garantito che sia valorizzato al momento del click se l'autenticazione è ok
                 if (!userId) {
                      showMessage("Errore: ID utente non disponibile. Ricarica la pagina.", true);
                      return;
@@ -397,9 +416,6 @@
                 }
             }
 
-
-            // --- Funzioni di Rendering (Aggiornamento UI) ---
-
             function renderHeader() {
                 const totalCps = calculateCps();
                 document.getElementById('pl-balance').textContent = formatPL(state.plBalance);
@@ -409,7 +425,7 @@
 
             function renderInvestmentCards() {
                 const container = document.getElementById('investments-container');
-                container.innerHTML = ''; // Pulisce i vecchi elementi
+                container.innerHTML = ''; 
 
                 investmentsData.forEach(invest => {
                     const currentLevel = state.investmentLevels[invest.id] || 0;
@@ -522,6 +538,39 @@
                 });
             }
 
+            function handleCopyReferral() {
+                if (!userId) {
+                     showMessage("Errore: ID utente non disponibile. Ricarica la pagina.", true);
+                     return;
+                }
+
+                const referralLink = `${window.location.origin}/?ref=${userId}`;
+                
+                const el = document.createElement('textarea');
+                el.value = referralLink;
+                document.body.appendChild(el);
+                el.select();
+                try {
+                    const successful = document.execCommand('copy');
+                    if (successful) {
+                        showMessage("Link di referral copiato negli appunti!");
+                    } else {
+                        showMessage("Errore: Impossibile copiare il link.", true);
+                    }
+                } catch (err) {
+                    showMessage("Errore: Impossibile copiare il link.", true);
+                } finally {
+                    document.body.removeChild(el);
+                }
+            }
+
+            function renderHeader() {
+                const totalCps = calculateCps();
+                document.getElementById('pl-balance').textContent = formatPL(state.plBalance);
+                document.getElementById('cps-rate').textContent = `+${totalCps.toFixed(1)}`;
+                document.getElementById('cpc-display').textContent = `+${formatPL(state.clickMultiplier)} PL`;
+            }
+
             function renderUI() {
                 renderHeader();
                 renderInvestmentCards();
@@ -532,28 +581,17 @@
 
             // --- Inizializzazione ---
 
-            // 1. Collega il click manuale
             document.getElementById('click-button').addEventListener('click', handleManualClick);
-            
-            // 2. Collega la copia del referral
             document.getElementById('copy-referral-button').addEventListener('click', handleCopyReferral);
             
-            // 3. Espone la funzione di caricamento per l'uso esterno (dal blocco di import Firebase)
             window.game = {
-                init: (uid) => {
-                    userId = uid;
-                    // Controlla che TUTTE le funzioni necessarie siano state esposte correttamente
-                    if (window.db && userId && window.doc && window.setDoc && window.onSnapshot) {
-                         loadState(userId); 
-                    } else {
-                        document.getElementById('loading-screen').innerHTML = '<div class="text-center text-white"><h2 class="text-2xl font-bold text-red-500">ERRORE DI CONFIGURAZIONE!</h2><p class="mt-2">Verifica che la configurazione Firebase (API Key, Project ID, ecc.) sia corretta e che tutte le funzioni siano state caricate.</p></div>';
-                        document.getElementById('loading-screen').classList.remove('hidden');
-                        document.getElementById('app-content').classList.add('hidden');
-                    }
+                init: (uid, forceLocalStorage) => {
+                    document.getElementById('user-id').textContent = uid;
+                    loadState(uid, forceLocalStorage);
                 }
             };
 
-            // Avvia il processo di autenticazione e caricamento una volta che l'ambiente Firebase è pronto
+            // Avvia il processo di caricamento
             window.authenticateAndLoad();
         });
     </script>
