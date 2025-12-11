@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { Power, Coins, Zap, Hammer, HeartHandshake, Share2, Users, Clipboard, Globe, X, Send, MessageSquare, Gamepad, Maximize2, GitBranch, Aperture, ScrollText, DollarSign } from 'lucide-react';
-
-// Tailwind CSS è disponibile per l'uso diretto
+import { Power, Coins, Zap, Hammer, Share2, Users, Clipboard, X, Send, MessageSquare, Gamepad, Maximize2, GitBranch, Aperture, ScrollText, DollarSign, PiggyBank, Briefcase } from 'lucide-react'; 
 
 // --- Configurazione Iniziale ---
 const INITIAL_BALANCE = 100;
@@ -15,25 +13,26 @@ const AUTO_SAVE_INTERVAL = 1500; // Salva ogni 1.5 secondi
 
 // --- Placeholder Firebase (per ambienti senza variabili globali) ---
 const STANDALONE_FIREBASE_CONFIG = {
-    apiKey: "YOUR_API_KEY", 
-    projectId: "YOUR_PROJECT_ID", 
+    apiKey: "YOUR_API_KEY",
+    projectId: "YOUR_PROJECT_ID",
 };
 
 let firebaseApp, auth, db;
 let FIREBASE_PLACEHOLDERS_USED = true;
-let __app_id = 'default-app-id'; // Default App ID
+// Variabili globali mandate dal Canvas
+let __app_id = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id'; 
+const __initial_auth_token = typeof window.__initial_auth_token !== 'undefined' ? window.__initial_auth_token : null; 
+const firebaseConfig = typeof window.__firebase_config !== 'undefined' ? JSON.parse(window.__firebase_config) : STANDALONE_FIREBASE_CONFIG;
+
 
 // Inizializzazione Firebase
 try {
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : STANDALONE_FIREBASE_CONFIG;
-    __app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-    if (firebaseConfig.apiKey !== "YOUR_API_KEY" && firebaseConfig.projectId !== "YOUR_PROJECT_ID") {
+    if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.apiKey !== "YOUR_API_KEY") {
         firebaseApp = initializeApp(firebaseConfig);
         auth = getAuth(firebaseApp);
         db = getFirestore(firebaseApp);
         FIREBASE_PLACEHOLDERS_USED = false;
-        // La logica di autenticazione è gestita in App useEffect
+        // setLogLevel('Debug'); // Non disponibile in questo contesto React senza import specifico
     } else {
         console.warn("Firebase non è configurato. Usando Local Storage per il salvataggio.");
     }
@@ -42,18 +41,21 @@ try {
     FIREBASE_PLACEHOLDERS_USED = true;
 }
 
+
+// --- Formattazione Globale ---
+const formatPL = (amount, lang = 'it-IT') => {
+    // Usa toLocaleString per formattare con separatori delle migliaia e senza decimali
+    return Math.floor(amount).toLocaleString(lang);
+};
+
 // --- Dizionario Lingue (L) ---
 const languageData = {
     'it-IT': {
         loading: "Caricamento stato di gioco...",
         main_title: "🇰🇵 KIM’S KINGDOM TYCOON 🇰🇵",
         subtitle: "Simulazione gestionale per la gloria dello Stato",
-        nav_home: "Home (Produzione)",
-        nav_investments: "Investimenti (Idle)",
-        nav_community: "Comunità (Social)",
-        nav_state: "Stato (Info)",
-        production_title: "Produzione Manuale",
-        click_text: "Clicca per PL!",
+        nav_home: "Home (Produzione)", nav_investments: "Investimenti (Idle)", nav_community: "Comunità (Social)", nav_state: "Stato (Info)",
+        production_title: "Produzione Manuale", click_text: "Clicca per PL!",
         manual_upgrades_title: "Potenziamenti Manuali Click (CPC)",
         investments_title: "Investimenti Nazionali (Idle)",
         social_title: "Comunità & Bonus",
@@ -109,12 +111,8 @@ const languageData = {
         loading: "Loading game state...",
         main_title: "🇰🇵 KIM’S KINGDOM TYCOON 🇰🇵",
         subtitle: "Management simulation for the glory of the State",
-        nav_home: "Home (Production)",
-        nav_investments: "Investments (Idle)",
-        nav_community: "Community (Social)",
-        nav_state: "State (Info)",
-        production_title: "Manual Production",
-        click_text: "Click for PL!",
+        nav_home: "Home (Production)", nav_investments: "Investments (Idle)", nav_community: "Community (Social)", nav_state: "State (Info)",
+        production_title: "Manual Production", click_text: "Click for PL!",
         manual_upgrades_title: "Manual Click Upgrades (CPC)",
         investments_title: "National Investments (Idle)",
         social_title: "Community & Bonuses",
@@ -124,19 +122,19 @@ const languageData = {
         state_summary_title: "State Summary",
         save_progress_text: "Progress saved in real-time.",
         id_state: "Citizen ID:",
-
+        
         // Investments (Idle)
         invest_manifesti: { name: "Propaganda Posters", desc: "Increases Faith and PL generated per second." },
         invest_turni: { name: "Extended Work Shifts", desc: "Boosts industrial production and idle earnings." },
         invest_accademia: { name: "Military Academy", desc: "Creates Armies of Loyalty for substantial passive income." },
         invest_infrastrutture: { name: "Infrastructure Improvement", desc: "A more efficient state network to maximize profit." },
-
+        
         // Upgrade Click (CPC)
         upgrade_decreto: { name: "Labor Decree", desc: "Doubles the PL obtained from each click." },
         upgrade_efficienza: { name: "Efficiency Campaign", desc: "Additional multiplier on your base click earnings." },
         upgrade_formazione: { name: "Accelerated Training", desc: "Increases manual precision and CPC." },
         upgrade_focus: { name: "Focused Research", desc: "Significantly boosts yield for every click." },
-
+        
         // Social Bonuses
         social_x: { name: 'Follow on X', url: "https://x.com/KJF_Sol" },
         social_telegram: { name: 'Join Telegram', url: "https://t.me/KJFSol" },
@@ -170,12 +168,8 @@ const languageData = {
         loading: "Chargement de l'état du jeu...",
         main_title: "🇰🇵 KIM’S KINGDOM TYCOON 🇰🇵",
         subtitle: "Simulation de gestion pour la gloire de l'État",
-        nav_home: "Accueil (Production)",
-        nav_investments: "Investissements (Passif)",
-        nav_community: "Communauté (Social)",
-        nav_state: "État (Info)",
-        production_title: "Production Manuelle",
-        click_text: "Cliquez pour PL!",
+        nav_home: "Accueil (Production)", nav_investments: "Investissements (Passif)", nav_community: "Communauté (Social)", nav_state: "État (Info)",
+        production_title: "Production Manuelle", click_text: "Cliquez pour PL!",
         manual_upgrades_title: "Améliorations Manuelles Click (CPC)",
         investments_title: "Investissements Nationaux (Passif)",
         social_title: "Communauté & Bonus",
@@ -185,19 +179,19 @@ const languageData = {
         state_summary_title: "Résumé de l'État",
         save_progress_text: "Progression sauvegardée en temps réel.",
         id_state: "ID Citoyen:",
-
+        
         // Investments (Idle)
         invest_manifesti: { name: "Affiches de Propagande", desc: "Augmente la Foi et les PL générés par seconde." },
         invest_turni: { name: "Quart de Travail Étendus", desc: "Boost la production industrielle et les gains passifs." },
         invest_accademia: { name: "Académie Militaire", desc: "Crée des Armées de Loyauté pour un revenu passif substantiel." },
         invest_infrastrutture: { name: "Amélioration des Infrastructures", desc: "Un réseau étatique plus efficace pour maximiser le profit." },
-
+        
         // Upgrade Click (CPC)
         upgrade_decreto: { name: "Décret de Travail", desc: "Double les PL obtenus à chaque clic." },
         upgrade_efficienza: { name: "Campagne d'Efficacité", desc: "Multiplicateur additionnel sur vos gains de clic de base." },
         upgrade_formazione: { name: "Formation Accélérée", desc: "Augmente la précision manuelle et le CPC." },
         upgrade_focus: { name: "Recherche Focalisée", desc: "Augmente considérablement le rendement à chaque clic." },
-
+        
         // Social Bonuses
         social_x: { name: 'Suivre sur X', url: "https://x.com/KJF_Sol" },
         social_telegram: { name: 'Rejoindre Telegram', url: "https://t.me/KJFSol" },
@@ -213,7 +207,7 @@ const languageData = {
         ui_level: (level) => `Niveau: ${level}`,
         ui_yield: (cps) => `Rendement: +${cps} PL/s`,
         ui_multiplier: (multiplier) => `Multiplicateur: x${multiplier}`,
-
+        
         // Messaggi
         msg_referral_success: (amount, referrerId) => `Bonus de Parrainage de ${formatPL(amount)} PL obtenu! Grâce à l'invitation de ${referrerId}.`,
         msg_insufficient_pl: (name, cost) => `Erreur: PL insuffisants pour ${name}. Besoin de ${formatPL(cost)} PL.`,
@@ -231,12 +225,8 @@ const languageData = {
         loading: "正在加载游戏状态...",
         main_title: "🇰🇵 金氏王国大亨 🇰🇵",
         subtitle: "为国家荣耀而设的管理模拟游戏",
-        nav_home: "首页 (生产)",
-        nav_investments: "投资 (挂机)",
-        nav_community: "社区 (社交)",
-        nav_state: "国家 (信息)",
-        production_title: "手动生产",
-        click_text: "点击赚取 PL!",
+        nav_home: "首页 (生产)", nav_investments: "投资 (挂机)", nav_community: "社区 (社交)", nav_state: "国家 (信息)",
+        production_title: "手动生产", click_text: "点击赚取 PL!",
         manual_upgrades_title: "手动点击升级 (CPC)",
         investments_title: "国家投资 (挂机)",
         social_title: "社区与奖励",
@@ -246,19 +236,19 @@ const languageData = {
         state_summary_title: "国家摘要",
         save_progress_text: "进度已实时保存。",
         id_state: "公民 ID:",
-
+        
         // Investments (Idle)
         invest_manifesti: { name: "宣传海报", desc: "提高信仰和每秒产生的 PL。" },
         invest_turni: { name: "延长工作班次", desc: "提升工业生产和挂机收入。" },
         invest_accademia: { name: "军事学院", desc: "创建忠诚军队以获得可观的被动收入。" },
         invest_infrastrutture: { name: "基础设施改善", desc: "更高效的国家网络以实现利润最大化。" },
-
+        
         // Upgrade Click (CPC)
         upgrade_decreto: { name: "劳动法令", desc: "将每次点击获得的 PL 翻倍。" },
         upgrade_efficienza: { name: "效率运动", desc: "基础点击收入的额外乘数。" },
         upgrade_formazione: { name: "加速培训", desc: "提高手动精度和 CPC。" },
         upgrade_focus: { name: "重点研究", desc: "显着提高每次点击的收益。" },
-
+        
         // Social Bonuses
         social_x: { name: '关注 X', url: "https://x.com/KJF_Sol" },
         social_telegram: { name: '加入 Telegram', url: "https://t.me/KJFSol" },
@@ -291,7 +281,6 @@ const languageData = {
 };
 
 // --- Strutture Dati del Gioco ---
-
 const investmentsData = [
     { id: 1, key: 'invest_manifesti', baseCost: 10, baseCps: 0.1, icon: "📢" },
     { id: 2, key: 'invest_turni', baseCost: 100, baseCps: 1, icon: "🏭" },
@@ -313,10 +302,7 @@ const socialBonusesData = [
     { key: 'twitch_followed', nameKey: 'social_twitch', icon: Gamepad },
 ];
 
-// --- Formattazione e Hook di Lingua ---
-
-const formatPL = (amount, lang = 'it-IT') => Math.floor(amount).toLocaleString(lang);
-
+// --- Hook di Lingua ---
 const useLanguage = () => {
     const [lang, setLang] = useState(localStorage.getItem('gameLanguage') || 'it-IT');
     const L = languageData[lang] || languageData['it-IT'];
@@ -332,12 +318,11 @@ const useLanguage = () => {
 };
 
 // --- Hook di Stato e Logica di Gioco ---
-
 const useGameState = (isAuthReady, initialUserId) => {
     const { lang, L } = useLanguage();
     const [state, setState] = useState(null);
     const [userId, setUserId] = useState(initialUserId);
-    const [useLocalStorage, setUseLocalStorage] = useState(true);
+    const [useLocalStorage, setUseLocalStorage] = useState(FIREBASE_PLACEHOLDERS_USED);
     const [message, setMessage] = useState(null);
 
     const showMessage = useCallback((msg, isError = false) => {
@@ -355,14 +340,14 @@ const useGameState = (isAuthReady, initialUserId) => {
         });
         return totalCps;
     }, [state]);
-    
+
     // Funzione per aggiornare lo stato e salvare
     const updateState = useCallback((newState) => {
         setState(prev => {
             const finalState = typeof newState === 'function' ? newState(prev) : newState;
             if (finalState) {
-                saveState(finalState);
-                return finalState;
+                // Non chiamare saveState qui, il loop di auto-save lo farà
+                return finalState; 
             }
             return prev;
         });
@@ -371,7 +356,7 @@ const useGameState = (isAuthReady, initialUserId) => {
     // Salva lo stato
     const saveState = useCallback(async (currentState) => {
         if (!currentState) return;
-        
+
         const stateToSave = {
             plBalance: currentState.plBalance,
             investmentLevels: currentState.investmentLevels,
@@ -389,37 +374,35 @@ const useGameState = (isAuthReady, initialUserId) => {
                 await setDoc(userDocRef, stateToSave, { merge: true });
             } catch (e) {
                 console.error("Errore nel salvataggio su Firebase:", e);
-                // Non mostrare messaggi di errore persistenti, solo in console
             }
         }
     }, [userId, useLocalStorage]);
+
 
     // Logica di caricamento dello stato
     const loadState = useCallback((uid, forceLocalStorage) => {
         setUserId(uid);
         setUseLocalStorage(forceLocalStorage);
-        
+
         const defaultState = {
             plBalance: INITIAL_BALANCE,
             investmentLevels: {},
             clickMultiplier: STARTING_CPC,
             clickUpgradePurchased: {},
             socialBonuses: {},
-            referralBonusClaimed: false, 
+            referralBonusClaimed: false,
         };
 
         const applyReferralBonus = (currentState) => {
             const urlParams = new URLSearchParams(window.location.search);
             const referrerId = urlParams.get('ref');
-
+            
+            // Verifica se l'URL ha un referrer E non è l'utente stesso E il bonus non è stato reclamato
             if (referrerId && referrerId !== uid && !currentState.referralBonusClaimed) {
-                
+                // Aggiungi bonus
                 currentState.plBalance += REFERRAL_BONUS_AMOUNT;
                 currentState.referralBonusClaimed = true;
                 showMessage(L.msg_referral_success(REFERRAL_BONUS_AMOUNT, referrerId));
-
-                // Aggiungi un piccolo log per il referrer
-                // (Qui si farebbe una transazione sul db per premiare il referrer, ma lo saltiamo per semplicità)
             }
             return currentState;
         };
@@ -436,7 +419,7 @@ const useGameState = (isAuthReady, initialUserId) => {
             }
             setState(applyReferralBonus(loadedState));
             showMessage(L.msg_loaded);
-            return;
+            return () => {};
         }
 
         // Caricamento Firebase
@@ -452,19 +435,19 @@ const useGameState = (isAuthReady, initialUserId) => {
                     // Salva stato iniziale su Firebase se non esiste
                     setDoc(userDocRef, defaultState).catch(err => console.error("Firebase save init error:", err));
                 }
-                
                 setState(applyReferralBonus(loadedState));
                 showMessage(L.msg_loaded);
-
             }, (error) => {
                 console.error("Errore di onSnapshot. Fallback a Local Storage:", error);
                 setUseLocalStorage(true);
-                loadState(uid, true); // Fallback immediato
+                // Il prossimo ciclo di useEffect di Autenticazione gestirà il fallback
             });
             return unsubscribe; // Restituisce la funzione di pulizia
         }
 
+        return () => {};
     }, [L, showMessage]);
+
 
     // Inizializzazione e Autenticazione (Effetto Principale)
     useEffect(() => {
@@ -487,60 +470,48 @@ const useGameState = (isAuthReady, initialUserId) => {
                         console.error("Errore anonimo Firebase, usando fallback locale:", e);
                         const localId = localStorage.getItem('userId') || crypto.randomUUID();
                         localStorage.setItem('userId', localId);
-                        setUserId(localId);
                         setUseLocalStorage(true);
-                        loadState(localId, true);
+                        cleanup = loadState(localId, true);
                         return;
                     }
                 }
-                const unsubscribeSnapshot = loadState(uid, false);
-                cleanup = unsubscribeSnapshot;
+                cleanup = loadState(uid, false);
             });
-            return () => {
-                unsubscribeAuth();
-                cleanup();
-            };
+            return () => { unsubscribeAuth(); cleanup(); };
         } else {
             // Modalità Local Storage (Fallback)
             const localId = localStorage.getItem('userId') || crypto.randomUUID();
             localStorage.setItem('userId', localId);
-            setUserId(localId);
-            setUseLocalStorage(true);
-            loadState(localId, true);
+            cleanup = loadState(localId, true);
+            return cleanup;
         }
-
     }, [isAuthReady, loadState]);
 
     // Game Loop (Aggiornamento CPS)
     useEffect(() => {
         if (!state) return;
-        
         const interval = setInterval(() => {
             setState(prev => {
                 if (!prev) return prev;
                 const cps = calculateCps;
                 if (cps === 0) return prev;
+                // Dividiamo per 10 e aggiorniamo ogni 100ms per un aggiornamento visivo più fluido
                 return { ...prev, plBalance: prev.plBalance + cps / 10 };
             });
-        }, 100); 
-
+        }, 100);
         return () => clearInterval(interval);
     }, [state, calculateCps]);
 
     // Auto-Save Interval (per Local Storage o per forzare il merge su Firebase)
     useEffect(() => {
         if (!state) return;
-
         const interval = setInterval(() => {
-             saveState(state);
+            saveState(state);
         }, AUTO_SAVE_INTERVAL);
-
         return () => clearInterval(interval);
     }, [state, saveState]);
 
-
     // --- Funzioni di Interazione (Handlers) ---
-
     const handleManualClick = () => {
         if (!state) return;
         updateState(prev => ({
@@ -553,9 +524,10 @@ const useGameState = (isAuthReady, initialUserId) => {
         if (!state) return;
         updateState(prev => {
             const currentLevel = prev.investmentLevels[invest.id] || 0;
-            const cost = Math.floor(invest.baseCost * Math.pow(1.15, currentLevel));
+            // Aumento del costo del 15% per livello
+            const cost = Math.floor(invest.baseCost * Math.pow(1.15, currentLevel)); 
             const investName = L[invest.key].name;
-            
+
             if (prev.plBalance >= cost) {
                 const newLevels = { ...prev.investmentLevels, [invest.id]: currentLevel + 1 };
                 showMessage(L.msg_purchased(investName, currentLevel + 1, cost));
@@ -582,12 +554,13 @@ const useGameState = (isAuthReady, initialUserId) => {
                 showMessage(L.msg_already_purchased(upgradeName), true);
                 return prev;
             }
-            
+
             if (prev.plBalance >= cost) {
                 const newUpgrades = { ...prev.clickUpgradePurchased, [upgrade.stateKey]: true };
-                const newMultiplier = prev.clickMultiplier * upgrade.multiplier;
+                // Moltiplica il moltiplicatore esistente per il nuovo moltiplicatore
+                const newMultiplier = prev.clickMultiplier * upgrade.multiplier; 
+                
                 showMessage(L.msg_multiplier_increased(upgradeName, newMultiplier));
-
                 return {
                     ...prev,
                     plBalance: prev.plBalance - cost,
@@ -626,16 +599,18 @@ const useGameState = (isAuthReady, initialUserId) => {
 
     const handleCopyReferral = () => {
         if (!userId) {
-             showMessage("Errore: ID utente non disponibile.", true);
-             return;
+            showMessage("Errore: ID utente non disponibile.", true);
+            return;
         }
 
         const referralLink = `${window.location.origin}${window.location.pathname}?ref=${userId}`;
         
+        // Uso document.execCommand('copy') per la compatibilità in ambiente iFrame
         const el = document.createElement('textarea');
         el.value = referralLink;
         document.body.appendChild(el);
         el.select();
+        
         try {
             const successful = document.execCommand('copy');
             if (successful) {
@@ -650,24 +625,17 @@ const useGameState = (isAuthReady, initialUserId) => {
         }
     };
 
-
     return {
-        state,
-        userId,
-        useLocalStorage,
-        calculateCps,
-        message,
-        handleManualClick,
-        handleBuyInvestment,
-        handleBuyClickUpgrade,
-        handleClaimSocialBonus,
-        handleCopyReferral,
-        showMessage
+        state, userId, useLocalStorage, calculateCps, message,
+        handleManualClick, handleBuyInvestment, handleBuyClickUpgrade,
+        handleClaimSocialBonus, handleCopyReferral, showMessage
     };
 };
 
-
 // --- Componenti UI ---
+
+// Stile comune per le card
+const cardBaseClasses = "bg-gray-700 p-4 rounded-xl shadow-lg border border-red-800/50 space-y-2 transition-transform hover:scale-[1.01] duration-300";
 
 // Scheda per i Potenziamenti Click
 const ClickUpgradeCard = React.memo(({ upgrade, state, handleBuy, L }) => {
@@ -676,7 +644,7 @@ const ClickUpgradeCard = React.memo(({ upgrade, state, handleBuy, L }) => {
     const canAfford = state.plBalance >= cost && !isPurchased;
     const upgradeStrings = L[upgrade.key];
     const Icon = upgrade.icon;
-    
+
     let buttonText;
     let buttonClass;
 
@@ -685,25 +653,27 @@ const ClickUpgradeCard = React.memo(({ upgrade, state, handleBuy, L }) => {
         buttonClass = 'bg-green-700 text-white cursor-not-allowed';
     } else if (canAfford) {
         buttonText = L.btn_invest(cost);
-        buttonClass = 'bg-yellow-700 hover:bg-yellow-600 text-white';
+        buttonClass = 'bg-yellow-600 hover:bg-yellow-500 text-gray-900 font-bold';
     } else {
         buttonText = L.btn_cost(cost);
-        buttonClass = 'bg-gray-600 text-gray-400 cursor-not-allowed';
+        buttonClass = 'bg-gray-600 text-gray-300 cursor-not-allowed';
     }
 
     return (
-        <div className={`p-4 rounded-lg shadow-xl transition-all border ${canAfford ? 'border-yellow-600/50 bg-gray-800 hover:bg-gray-700' : 'border-gray-600/50 bg-gray-900 opacity-70'}`}>
-            <div className="flex items-center space-x-3 mb-2">
-                <Icon className="w-6 h-6 text-yellow-400" />
-                <h3 className="text-xl font-bold text-white">{upgradeStrings.name}</h3>
+        <div className={cardBaseClasses}>
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white flex items-center">
+                    <Icon className="w-5 h-5 mr-2 text-yellow-400" />
+                    {upgradeStrings.name}
+                </h3>
+                <span className="text-sm font-semibold text-yellow-400">
+                    {L.ui_multiplier(upgrade.multiplier)}
+                </span>
             </div>
-            <p className="text-sm text-gray-400 mb-3">{upgradeStrings.desc}</p>
-            <div className="flex justify-between items-center text-sm mb-3">
-                <span className="text-yellow-400 font-medium">{L.ui_multiplier(upgrade.multiplier)}</span>
-            </div>
-            <button 
+            <p className="text-sm text-gray-300">{upgradeStrings.desc}</p>
+            <button
                 onClick={() => handleBuy(upgrade)}
-                className={`w-full py-2 rounded-lg font-semibold transition-all shadow-md active:scale-95 ${buttonClass}`} 
+                className={`w-full py-2 rounded-lg font-semibold transition-all shadow-md active:scale-95 ${buttonClass}`}
                 disabled={!canAfford || isPurchased}
             >
                 {buttonText}
@@ -716,28 +686,34 @@ const ClickUpgradeCard = React.memo(({ upgrade, state, handleBuy, L }) => {
 const InvestmentCard = React.memo(({ invest, state, handleBuy, L }) => {
     const currentLevel = state.investmentLevels[invest.id] || 0;
     const cost = Math.floor(invest.baseCost * Math.pow(1.15, currentLevel));
-    const currentCps = (invest.baseCps * currentLevel).toFixed(1);
+    const currentCps = (invest.baseCps * currentLevel);
+    const costFormatted = formatPL(cost, L.lang);
     const canAfford = state.plBalance >= cost;
     const investStrings = L[invest.key];
-    
+
     return (
-        <div className={`p-4 rounded-lg shadow-xl transition-all border ${canAfford ? 'border-green-600/50 bg-gray-800 hover:bg-gray-700' : 'border-red-600/50 bg-gray-900 opacity-70'}`}>
-            <div className="flex items-center space-x-3 mb-2">
-                <span className="text-3xl">{invest.icon}</span>
-                <h3 className="text-xl font-bold text-white">{investStrings.name}</h3>
+        <div className={cardBaseClasses}>
+            <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-white flex items-center">
+                    <span className="text-xl mr-2">{invest.icon}</span>
+                    {investStrings.name}
+                </h3>
+                <span className="text-sm font-semibold text-red-400">
+                    {L.ui_level(currentLevel)}
+                </span>
             </div>
-            <p className="text-sm text-gray-400 mb-3">{investStrings.desc}</p>
-            
-            <div className="flex justify-between items-center text-sm mb-3">
-                <span className="text-yellow-400 font-medium">{L.ui_level(currentLevel)}</span>
-                <span className="text-green-400 font-medium">{L.ui_yield(currentCps)}</span>
+            <p className="text-sm text-gray-300">{investStrings.desc}</p>
+            <div className="flex justify-between items-center text-sm text-gray-300">
+                <span>{L.ui_yield(currentCps.toFixed(1))}</span>
+                <span>{L.btn_cost(cost)}</span>
             </div>
-            <button 
+            <button
                 onClick={() => handleBuy(invest)}
                 className={`buy-invest-btn w-full py-2 rounded-lg font-semibold transition-all shadow-md active:scale-95 ${
-                    canAfford ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                }`} 
-                disabled={!canAfford}>
+                    canAfford ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                }`}
+                disabled={!canAfford}
+            >
                 {canAfford ? L.btn_invest(cost) : L.btn_cost(cost)}
             </button>
         </div>
@@ -754,90 +730,77 @@ const SocialBonusCard = React.memo(({ bonus, state, handleClaim, L }) => {
     let buttonClass = isClaimed ? 'bg-green-700 text-white cursor-not-allowed' : 'bg-sky-700 hover:bg-sky-600 text-white active:scale-95';
 
     return (
-        <div className={`p-4 rounded-lg shadow-md border ${isClaimed ? 'border-green-600/50 bg-green-900/20' : 'border-sky-600/50 bg-gray-900/50'}`}>
-            <div className="flex justify-between items-center">
+        <div className="flex items-center justify-between bg-gray-700 p-3 rounded-xl border border-gray-600 shadow-md">
+            <div className="flex items-center">
+                <Icon className={`w-6 h-6 mr-3 ${isClaimed ? 'text-green-400' : 'text-sky-400'}`} />
                 <div>
-                    <h4 className="text-lg font-semibold text-white flex items-center">
-                        <Icon className="w-4 h-4 mr-1 text-sky-400" />
-                        {bonusName}
-                    </h4>
-                    <p className="text-sm text-yellow-300">+ {formatPL(SOCIAL_BONUS_AMOUNT, L.lang)} PL</p>
+                    <h3 className="font-semibold text-white">{bonusName}</h3>
+                    <p className="text-xs text-gray-400">+ {formatPL(SOCIAL_BONUS_AMOUNT, L.lang)} PL</p>
                 </div>
-                <button 
-                    onClick={() => handleClaim(bonus)}
-                    className={`claim-bonus-btn py-2 px-4 rounded-full font-semibold transition-all shadow-lg ${buttonClass}`} 
-                    disabled={isClaimed}
-                >
-                    {buttonText}
-                </button>
             </div>
+            <button
+                onClick={() => handleClaim(bonus)}
+                className={`claim-bonus-btn py-2 px-4 rounded-full font-semibold transition-all shadow-lg text-sm ${buttonClass}`}
+                disabled={isClaimed}
+            >
+                {buttonText}
+            </button>
         </div>
     );
 });
-
 
 // --- Pagine del Gioco ---
 
 const HomePage = ({ state, handleManualClick, handleBuyClickUpgrade, L }) => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Colonna Clicker */}
-        <div className="lg:col-span-1 flex flex-col items-center">
-            <h2 className="text-3xl font-bold text-red-400 mb-4 flex items-center">
-                <Hammer className="w-6 h-6 mr-2" />
-                {L.production_title}
-            </h2>
+        <div className="lg:col-span-1 flex flex-col items-center p-4 bg-gray-700 rounded-xl border border-red-800/50 shadow-2xl">
+            <h2 className="text-2xl font-bold text-red-400 mb-4">{L.production_title}</h2>
+            
             <button
                 onClick={handleManualClick}
-                className="click-button w-full h-64 sm:h-80 transition-all rounded-2xl shadow-2xl flex flex-col items-center justify-center text-white p-4 
-                    bg-gradient-to-br from-red-600 to-red-900 border-b-8 border-red-900 hover:from-red-500 hover:to-red-800 active:scale-98 active:border-b-4"
+                className="w-full max-w-xs aspect-square bg-red-600 rounded-full flex items-center justify-center text-white text-lg font-extrabold shadow-2xl transition-all duration-100 ease-out active:scale-[0.98] active:bg-red-700 border-4 border-red-800"
             >
-                <Power className="w-16 h-16 mb-2 text-yellow-300" />
-                <span className="text-3xl font-extrabold">{L.click_text}</span>
-                <span className="text-xl mt-2 font-semibold text-yellow-300">
-                    +{formatPL(state.clickMultiplier, L.lang)} PL
-                </span>
+                <Power className="w-8 h-8 mr-2" />
+                {L.click_text} <span className="ml-1 text-yellow-300">+{formatPL(state.clickMultiplier, L.lang)} PL</span>
             </button>
-            
+
             {/* Upgrade Click */}
-            <div className="w-full mt-6 space-y-4">
-                <h3 className="text-xl font-bold text-yellow-400 mt-4 border-b border-gray-700 pb-2">{L.manual_upgrades_title}</h3>
-                <div className="space-y-4">
-                    {clickUpgradesData.map(upgrade => (
-                        <ClickUpgradeCard 
-                            key={upgrade.id} 
-                            upgrade={upgrade} 
-                            state={state} 
-                            handleBuy={handleBuyClickUpgrade} 
-                            L={L} 
-                        />
-                    ))}
-                </div>
+            <h3 className="text-xl font-semibold text-gray-300 mt-8 mb-4 w-full text-left">{L.manual_upgrades_title}</h3>
+            <div className="w-full space-y-3">
+                {clickUpgradesData.map(upgrade => (
+                    <ClickUpgradeCard
+                        key={upgrade.id}
+                        upgrade={upgrade}
+                        state={state}
+                        handleBuy={handleBuyClickUpgrade}
+                        L={L}
+                    />
+                ))}
             </div>
         </div>
-
-        {/* Placeholder per schermi grandi */}
-        <div className="hidden lg:block lg:col-span-2">
-            <div className="h-full flex items-center justify-center text-gray-600 text-2xl font-bold border-2 border-dashed border-gray-700 rounded-xl p-8">
-                {L.nav_investments} & {L.nav_community} sono nelle altre sezioni di navigazione.
-            </div>
+        
+        {/* Colonne di investimento (Placeholder per schermi grandi) */}
+        <div className="hidden lg:col-span-2 lg:flex flex-col items-center justify-center p-8 bg-gray-800 rounded-xl shadow-inner border border-red-900/50">
+            <Briefcase className="w-12 h-12 text-gray-500 mb-4" />
+            <p className="text-lg text-gray-400 text-center">
+                {L.nav_investments} & {L.nav_community} sono nelle altre sezioni di navigazione. Usa i link in basso.
+            </p>
         </div>
     </div>
 );
 
 const InvestmentsPage = ({ state, handleBuyInvestment, L }) => (
     <>
-        <h2 className="text-3xl font-bold text-sky-400 mb-6 flex items-center border-b border-gray-700 pb-2">
-            <HeartHandshake className="w-6 h-6 mr-2" />
-            {L.investments_title}
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <h2 className="text-2xl font-bold text-red-400 mb-6">{L.investments_title}</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {investmentsData.map(invest => (
-                <InvestmentCard 
-                    key={invest.id} 
-                    invest={invest} 
-                    state={state} 
-                    handleBuy={handleBuyInvestment} 
-                    L={L} 
+                <InvestmentCard
+                    key={invest.id}
+                    invest={invest}
+                    state={state}
+                    handleBuy={handleBuyInvestment}
+                    L={L}
                 />
             ))}
         </div>
@@ -846,49 +809,50 @@ const InvestmentsPage = ({ state, handleBuyInvestment, L }) => (
 
 const CommunityPage = ({ state, handleClaimSocialBonus, handleCopyReferral, userId, L }) => {
     const referralLink = `${window.location.origin}${window.location.pathname}?ref=${userId}`;
-
+    
     return (
-        <div className="p-6 bg-gray-800/70 border border-indigo-700 rounded-xl shadow-2xl">
-            <h3 className="text-2xl font-bold text-indigo-400 mb-4 flex items-center border-b border-gray-700 pb-2">
-                <Share2 className="w-5 h-5 mr-2" />
-                {L.social_title}
-            </h3>
-            
+        <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-red-400">{L.social_title}</h2>
+
             {/* Sezione Link Referral */}
-            <div className="mb-8 p-4 bg-gray-900 rounded-lg border border-gray-700">
-                <h4 className="text-xl font-semibold text-white mb-2">{L.referral_link_title}</h4>
-                <p className="text-gray-400 text-sm mb-3">{L.referral_link_description}</p>
-                <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 items-center">
-                    <p className="p-2 bg-gray-700 rounded text-sm text-yellow-300 font-mono overflow-auto w-full sm:w-auto">
-                        {referralLink.length > 50 ? `${referralLink.substring(0, 50)}...` : referralLink}
+            <div className="bg-gray-700 p-5 rounded-xl border border-red-800/50 shadow-lg space-y-3">
+                <h3 className="text-xl font-semibold text-sky-400 flex items-center">
+                    <Share2 className="w-5 h-5 mr-2" />
+                    {L.referral_link_title}
+                </h3>
+                <p className="text-sm text-gray-300">{L.referral_link_description}</p>
+                
+                <div className="bg-gray-800 p-3 rounded-lg flex justify-between items-center border border-gray-600">
+                    <p className="text-xs sm:text-sm font-mono text-gray-400 overflow-hidden overflow-ellipsis whitespace-nowrap pr-2">
+                        {referralLink}
                     </p>
                     <button
                         onClick={handleCopyReferral}
-                        className="flex items-center py-2 px-4 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors active:scale-95 shadow-md w-full sm:w-auto justify-center"
+                        className="flex items-center text-sm px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-full transition-colors active:scale-95 shadow-md"
                     >
-                        <Clipboard className="w-4 h-4 mr-2" />
+                        <Clipboard className="w-4 h-4 mr-1" />
                         {L.copy_link}
                     </button>
                 </div>
+                
+                {/* Messaggio Bonus Referral (mostrato se reclamato) */}
+                {state.referralBonusClaimed && (
+                    <p className="text-sm text-green-400 pt-2 border-t border-gray-600 mt-3">
+                        {L.msg_referral_success(REFERRAL_BONUS_AMOUNT, new URLSearchParams(window.location.search).get('ref') || 'Stato')}
+                    </p>
+                )}
             </div>
 
-            {/* Messaggio Bonus Referral (mostrato se reclamato) */}
-            {state.referralBonusClaimed && (
-                 <div className="p-4 mb-4 bg-green-900/50 border border-green-600 rounded-lg text-white font-semibold">
-                    {L.msg_referral_success(REFERRAL_BONUS_AMOUNT, new URLSearchParams(window.location.search).get('ref') || 'Stato')}
-                 </div>
-            )}
-
             {/* Bonus Social */}
-            <h4 className="text-xl font-semibold text-white mb-3">Bonus Disponibili:</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <h3 className="text-xl font-semibold text-gray-300">Bonus Disponibili:</h3>
+            <div className="space-y-3">
                 {socialBonusesData.map(bonus => (
-                    <SocialBonusCard 
-                        key={bonus.key} 
-                        bonus={bonus} 
-                        state={state} 
-                        handleClaim={handleClaimSocialBonus} 
-                        L={L} 
+                    <SocialBonusCard
+                        key={bonus.key}
+                        bonus={bonus}
+                        state={state}
+                        handleClaim={handleClaimSocialBonus}
+                        L={L}
                     />
                 ))}
             </div>
@@ -897,7 +861,6 @@ const CommunityPage = ({ state, handleClaimSocialBonus, handleCopyReferral, user
 };
 
 const StatePage = ({ userId, useLocalStorage, lang, setAppLanguage, L }) => {
-    
     // Lista delle lingue disponibili per il selettore
     const languageOptions = [
         { value: 'it-IT', label: '🇮🇹 Italiano' },
@@ -907,46 +870,45 @@ const StatePage = ({ userId, useLocalStorage, lang, setAppLanguage, L }) => {
     ];
 
     return (
-        <div className="p-6 bg-gray-800/70 border border-gray-700 rounded-xl shadow-2xl space-y-6">
-            <h3 className="text-2xl font-bold text-red-400 mb-4 flex items-center border-b border-gray-700 pb-2">
-                <GitBranch className="w-5 h-5 mr-2" />
-                {L.state_summary_title}
-            </h3>
-
-            {/* Dettagli Stato */}
-            <div className="space-y-4">
-                <div className="flex items-center space-x-3 bg-gray-900 p-3 rounded-lg">
-                    <Users className="w-5 h-5 text-red-500" />
-                    <p className="text-gray-400 font-medium">{L.id_state}</p>
-                    <p className="text-sm font-mono text-white break-all">{userId || 'N/A'}</p>
-                </div>
-                <div className="flex items-center space-x-3 bg-gray-900 p-3 rounded-lg">
-                    <ScrollText className="w-5 h-5 text-yellow-500" />
-                    <p className="text-gray-400 font-medium">Modalità Salvataggio:</p>
-                    <p className={`text-sm font-semibold ${useLocalStorage ? 'text-yellow-400' : 'text-green-400'}`}>
-                        {useLocalStorage ? 'Locale (Local Storage)' : 'Cloud (Firebase)'}
-                    </p>
-                </div>
-            </div>
-
-            {/* Selettore Lingua */}
-            <div className="pt-4 border-t border-gray-700">
-                <h4 className="text-xl font-bold text-white mb-3 flex items-center">
-                    <Globe className="w-5 h-5 mr-2" />
-                    Selezione Lingua
-                </h4>
-                <select 
-                    value={lang} 
-                    onChange={(e) => setAppLanguage(e.target.value)}
-                    className="p-2 rounded-lg bg-gray-700 text-white border border-gray-600 shadow-md focus:ring-red-500 focus:border-red-500 w-full"
-                >
-                    {languageOptions.map(option => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                </select>
-            </div>
+        <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-red-400 mb-4">{L.state_summary_title}</h2>
             
-            <p className="text-gray-500 text-xs pt-4 border-t border-gray-700">{L.save_progress_text}</p>
+            {/* Dettagli Stato */}
+            <div className="bg-gray-700 p-5 rounded-xl border border-red-800/50 shadow-lg space-y-3">
+                
+                <div className="flex justify-between items-center border-b border-gray-600 pb-2">
+                    <span className="text-gray-400">{L.id_state}</span>
+                    <span className="font-mono text-white break-all">{userId || 'N/A'}</span>
+                </div>
+
+                <div className="flex justify-between items-center border-b border-gray-600 pb-2">
+                    <span className="text-gray-400">Modalità Salvataggio:</span>
+                    <span className={`font-semibold ${useLocalStorage ? 'text-yellow-400' : 'text-green-400'}`}>
+                        {useLocalStorage ? 'Locale (Local Storage)' : 'Cloud (Firebase)'}
+                    </span>
+                </div>
+
+                {/* Selettore Lingua */}
+                <div className="pt-2">
+                    <label htmlFor="language-select" className="block text-sm font-medium text-gray-400 mb-1">
+                        Selezione Lingua
+                    </label>
+                    <select
+                        id="language-select"
+                        value={lang}
+                        onChange={(e) => setAppLanguage(e.target.value)}
+                        className="p-2 rounded-lg bg-gray-800 text-white border border-gray-600 shadow-md focus:ring-red-500 focus:border-red-500 w-full"
+                    >
+                        {languageOptions.map(option => (
+                            <option key={option.value} value={option.value}>
+                                {option.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+
+            <p className="text-sm text-gray-500 text-center">{L.save_progress_text}</p>
         </div>
     );
 };
@@ -960,138 +922,139 @@ const App = () => {
     
     // Simula l'attesa di `onAuthStateChanged` prima di inizializzare il gioco
     useEffect(() => {
-        // Se non usiamo Firebase o la token non è presente, l'auth è "pronta" subito
-        if (FIREBASE_PLACEHOLDERS_USED || typeof __initial_auth_token === 'undefined') {
+        // Se non usiamo Firebase, l'auth è "pronta" subito
+        if (FIREBASE_PLACEHOLDERS_USED) {
             setIsAuthReady(true);
             return;
         }
 
-        // Se usiamo Firebase e c'è il token, prova il login con token
+        // Se usiamo Firebase, tentiamo il login con token se disponibile
         const tryTokenLogin = async () => {
-            if (auth && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            if (auth && __initial_auth_token) {
                 try {
-                    await auth.signInWithCustomToken(__initial_auth_token);
-                    console.log("Signed in with custom token.");
+                    // Tenta il login con token fornito dal Canvas
+                    await signInWithCustomToken(auth, __initial_auth_token); 
                 } catch (error) {
-                    console.warn("Custom token failed. Will rely on anonymous sign-in in useGameState.", error);
+                    console.warn("Custom token failed. Relying on anonymous sign-in in useGameState.", error);
                 }
             }
-            setIsAuthReady(true); // L'auth è pronta per essere gestita da useGameState
+            setIsAuthReady(true); // L'auth è pronta per essere gestita da useGameState/onAuthStateChanged
         };
         tryTokenLogin();
-        
     }, []);
 
     const { 
-        state, 
-        userId, 
-        useLocalStorage,
-        calculateCps, 
-        message, 
-        handleManualClick, 
-        handleBuyInvestment, 
-        handleBuyClickUpgrade,
-        handleClaimSocialBonus,
-        handleCopyReferral,
+        state, userId, useLocalStorage, calculateCps, message,
+        handleManualClick, handleBuyInvestment, handleBuyClickUpgrade,
+        handleClaimSocialBonus, handleCopyReferral,
     } = useGameState(isAuthReady, localStorage.getItem('userId') || null);
 
     // Mappa le pagine con i componenti
-    const renderPage = () => {
+    const renderPage = useCallback(() => {
         if (!state) return null;
-
         switch (page) {
             case 'home':
-                return <HomePage 
-                    state={state} 
-                    handleManualClick={handleManualClick} 
-                    handleBuyClickUpgrade={handleBuyClickUpgrade} 
-                    L={L} 
-                />;
+                return (
+                    <HomePage 
+                        state={state} 
+                        handleManualClick={handleManualClick} 
+                        handleBuyClickUpgrade={handleBuyClickUpgrade} 
+                        L={L} 
+                    />
+                );
             case 'investments':
-                return <InvestmentsPage 
-                    state={state} 
-                    handleBuyInvestment={handleBuyInvestment} 
-                    L={L} 
-                />;
+                return (
+                    <InvestmentsPage 
+                        state={state} 
+                        handleBuyInvestment={handleBuyInvestment} 
+                        L={L} 
+                    />
+                );
             case 'community':
-                return <CommunityPage 
-                    state={state} 
-                    handleClaimSocialBonus={handleClaimSocialBonus} 
-                    handleCopyReferral={handleCopyReferral}
-                    userId={userId}
-                    L={L} 
-                />;
+                return (
+                    <CommunityPage 
+                        state={state} 
+                        handleClaimSocialBonus={handleClaimSocialBonus} 
+                        handleCopyReferral={handleCopyReferral} 
+                        userId={userId} 
+                        L={L} 
+                    />
+                );
             case 'state':
-                return <StatePage 
-                    userId={userId} 
-                    useLocalStorage={useLocalStorage} 
-                    lang={lang}
-                    setAppLanguage={setAppLanguage}
-                    L={L}
-                />;
+                return (
+                    <StatePage 
+                        userId={userId} 
+                        useLocalStorage={useLocalStorage} 
+                        lang={lang} 
+                        setAppLanguage={setAppLanguage} 
+                        L={L} 
+                    />
+                );
             default:
-                return <HomePage state={state} handleManualClick={handleManualClick} L={L} />;
+                return (
+                    <HomePage 
+                        state={state} 
+                        handleManualClick={handleManualClick} 
+                        handleBuyClickUpgrade={handleBuyClickUpgrade} 
+                        L={L} 
+                    />
+                );
         }
-    };
-    
+    }, [page, state, handleManualClick, handleBuyClickUpgrade, handleBuyInvestment, handleClaimSocialBonus, handleCopyReferral, userId, useLocalStorage, lang, setAppLanguage, L]);
+
     const navItems = useMemo(() => [
         { id: 'home', label: L.nav_home, icon: Hammer },
-        { id: 'investments', label: L.nav_investments, icon: DollarSign },
+        { id: 'investments', label: L.nav_investments, icon: PiggyBank }, // Cambiato in PiggyBank, più tematico
         { id: 'community', label: L.nav_community, icon: Users },
         { id: 'state', label: L.nav_state, icon: GitBranch },
     ], [L]);
 
     if (!state) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-900">
-                <div className="text-center text-white">
-                    <svg className="w-10 h-10 animate-spin text-red-500 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                    <p className="text-xl mt-2">{L.loading}</p>
-                </div>
+            <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-red-500"></div>
+                <p className="mt-4 text-lg text-gray-400">{L.loading}</p>
             </div>
         );
     }
-    
+
     const totalCps = calculateCps;
 
     return (
-        <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-8">
-            <div className="max-w-6xl mx-auto">
-
-                <header className="text-center mb-6">
-                    <h1 className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-yellow-400 mb-1">
-                        {L.main_title}
-                    </h1>
-                    <p className="text-gray-400 text-lg">{L.subtitle}</p>
-                </header>
+        <div className="min-h-screen bg-gray-900 flex flex-col items-center p-4 sm:p-8">
+            <div className="w-full max-w-4xl">
                 
+                {/* Titolo e Sottotitolo */}
+                <header className="text-center mb-6">
+                    <h1 className="text-3xl sm:text-4xl font-extrabold text-red-500 drop-shadow-lg">{L.main_title}</h1>
+                    <p className="text-sm text-gray-400 mt-1">{L.subtitle}</p>
+                </header>
+
                 {/* Header Saldo e CPS */}
-                <div className="flex flex-wrap justify-center sm:justify-between items-center p-3 sm:p-4 mb-6 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl">
-                    <div className="flex items-center p-2 bg-yellow-900/40 border border-yellow-500/50 rounded-full mb-2 sm:mb-0">
-                        <Coins className="w-6 h-6 text-yellow-400 mr-2" />
-                        <p className="text-xl sm:text-2xl font-bold text-white">
-                            PL: <span className="text-yellow-300">{formatPL(state.plBalance, L.lang)}</span>
-                        </p>
+                <div className="flex justify-between items-center p-4 bg-gray-800 rounded-xl shadow-inner mb-6 border-b-4 border-red-900">
+                    <div className="flex items-center">
+                        <Coins className="w-6 h-6 text-yellow-500 mr-2" />
+                        <span className="text-xl sm:text-2xl font-bold text-white">
+                            PL: <span className="text-yellow-400">{formatPL(state.plBalance, L.lang)}</span>
+                        </span>
                     </div>
-                    <div className="flex items-center p-2 bg-green-900/40 border border-green-500/50 rounded-full">
-                        <Zap className="w-6 h-6 text-green-400 mr-1" />
-                        <p className="text-md sm:text-lg font-semibold text-white">
-                            <span className="text-green-300">+{totalCps.toFixed(1)}</span> /s
-                        </p>
+                    <div className="flex items-center text-sm sm:text-lg font-medium text-green-400">
+                        <Zap className="w-4 h-4 mr-1" />
+                        <span>
+                            +{totalCps.toFixed(1)} /s
+                        </span>
                     </div>
                 </div>
 
                 {/* Messaggio di Stato */}
                 {message && (
-                    <div className={`text-center p-3 mb-6 rounded-lg font-medium shadow-md ${
-                        message.error ? 'bg-red-500/20 text-red-300 border border-red-500' : 'bg-sky-500/20 text-sky-300 border border-sky-500'
-                    }`}>
+                    <div className={`p-3 mb-4 rounded-lg text-center font-semibold ${message.error ? 'bg-red-900/70 text-red-300 border border-red-700' : 'bg-green-900/70 text-green-300 border border-green-700'}`}>
                         {message.text}
                     </div>
                 )}
 
                 {/* Navigazione */}
-                <div className="flex justify-center p-2 mb-8 bg-gray-800 rounded-xl shadow-inner overflow-x-auto">
+                <nav className="flex justify-center flex-wrap gap-2 sm:gap-4 mb-8 p-3 bg-gray-800 rounded-xl shadow-xl border border-red-800/50">
                     {navItems.map(item => {
                         const Icon = item.icon;
                         const isActive = page === item.id;
@@ -1099,34 +1062,29 @@ const App = () => {
                             <button
                                 key={item.id}
                                 onClick={() => setPage(item.id)}
-                                className={`flex items-center px-4 py-2 mx-1 rounded-lg font-semibold transition-all text-sm sm:text-base whitespace-nowrap ${
-                                    isActive 
-                                        ? 'bg-red-600 text-white shadow-lg' 
-                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                className={`flex items-center px-4 py-2 mx-1 rounded-full font-semibold transition-all text-sm sm:text-base whitespace-nowrap shadow-md active:scale-95 ${
+                                    isActive ? 'bg-red-600 text-white shadow-red-500/50' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
                                 }`}
                             >
-                                <Icon className="w-4 h-4 mr-1 sm:mr-2" />
+                                <Icon className="w-4 h-4 mr-2" />
                                 {item.label}
                             </button>
                         );
                     })}
-                </div>
+                </nav>
 
                 {/* Contenuto Pagina */}
-                <main className="max-w-4xl mx-auto">
+                <main className="pb-10">
                     {renderPage()}
                 </main>
-                
+
                 {/* Footer (ID Cittadino) */}
-                <div className="max-w-4xl mx-auto mt-10 pt-4 border-t border-gray-700">
-                    <div className="flex justify-between items-center text-sm">
-                        <p className="text-gray-500">{L.save_progress_text}</p>
-                        <div className="flex items-center space-x-2">
-                            <span className="text-gray-400 font-medium">{L.id_state}</span>
-                            <span className="font-mono text-gray-300 break-all">{userId || 'N/A'}</span>
-                        </div>
-                    </div>
-                </div>
+                <footer className="text-center mt-auto pt-6 border-t border-gray-800">
+                    <p className="text-xs text-gray-500">{L.save_progress_text}</p>
+                    <p className="text-xs text-gray-600 mt-1">
+                        {L.id_state} <span className="font-mono text-gray-400">{userId || 'N/A'}</span>
+                    </p>
+                </footer>
             </div>
         </div>
     );
